@@ -15,12 +15,13 @@ mod switch;
 mod task;
 
 use crate::config::MAX_APP_NUM;
+use crate::config::MAX_SYSCALL_NUM;
 use crate::loader::{get_num_app, init_app_cx};
 use crate::sync::UPSafeCell;
 use lazy_static::*;
 use switch::__switch;
-pub use task::{TaskControlBlock, TaskStatus};
-
+pub use task::{TaskControlBlock, TaskStatus,TaskInfoInner};
+ use crate::syscall::process::TaskInfo;
 pub use context::TaskContext;
 
 /// The task manager, where all the tasks are managed.
@@ -36,15 +37,15 @@ pub struct TaskManager {
     /// total number of tasks
     num_app: usize,
     /// use inner value to get mutable access
-    inner: UPSafeCell<TaskManagerInner>,
+    pub inner: UPSafeCell<TaskManagerInner>,
 }
 
 /// Inner of Task Manager
 pub struct TaskManagerInner {
     /// task list
-    tasks: [TaskControlBlock; MAX_APP_NUM],
+    pub tasks: [TaskControlBlock; MAX_APP_NUM],
     /// id of current `Running` task
-    current_task: usize,
+    pub current_task: usize,
 }
 
 lazy_static! {
@@ -54,6 +55,10 @@ lazy_static! {
         let mut tasks = [TaskControlBlock {
             task_cx: TaskContext::zero_init(),
             task_status: TaskStatus::UnInit,
+            task_info_inner : TaskInfoInner{
+                syscall_times : [0;MAX_SYSCALL_NUM],
+                start_time : 0
+            }
         }; MAX_APP_NUM];
         for (i, task) in tasks.iter_mut().enumerate() {
             task.task_cx = TaskContext::goto_restore(init_app_cx(i));
@@ -133,6 +138,30 @@ impl TaskManager {
             // go back to user mode
         } else {
             panic!("All applications completed!");
+        }
+
+        
+    }
+
+    ///
+    pub fn set_syscall_times(&self, syscall_id: usize) {
+        let mut inner = self.inner.exclusive_access();
+        let current_id = inner.current_task;
+        inner.tasks[current_id].task_info_inner.syscall_times[syscall_id] += 1;
+    }
+
+    ///
+    pub fn get_current_task_info(&self, ti: *mut TaskInfo) {
+        let inner = self.inner.exclusive_access();
+        let current_id = inner.current_task;
+        let TaskInfoInner {syscall_times, start_time} = inner.tasks[current_id].task_info_inner;
+
+        unsafe {
+            *ti = TaskInfo {
+                status: TaskStatus::Running,
+                syscall_times,
+                time: crate::timer::get_time_ms() - start_time,
+            };
         }
     }
 }
