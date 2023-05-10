@@ -148,6 +148,7 @@ impl TaskManager {
         let mut inner = self.inner.exclusive_access();
         let current_id = inner.current_task;
         inner.tasks[current_id].task_info_inner.syscall_times[syscall_id] += 1;
+        drop(inner);
     }
 
     ///
@@ -163,6 +164,7 @@ impl TaskManager {
                 time: crate::timer::get_time_ms() - start_time,
             };
         }
+        drop(inner);
     }
 }
 
